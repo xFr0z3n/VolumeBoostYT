@@ -99,7 +99,7 @@ typedef NS_ENUM(NSInteger, YTVolumeHUDTransitionPhase) {
 
 @end
 
-@interface YTVolumeHUD ()
+@interface YTVolumeHUD () <UIGestureRecognizerDelegate>
 @property(nonatomic, strong) UIVisualEffectView *backgroundView;
 @property(nonatomic, strong) UIImageView *iconView;
 @property(nonatomic, strong) UILabel *titleLabel;
@@ -204,6 +204,14 @@ typedef NS_ENUM(NSInteger, YTVolumeHUDTransitionPhase) {
                        action:@selector(closePressed:)
              forControlEvents:UIControlEventTouchUpInside];
   [self addSubview:self.closeButton];
+
+  // Tap the middle of the panel (icon / title / percentage) to reset to 100%
+  UITapGestureRecognizer *resetTap =
+      [[UITapGestureRecognizer alloc] initWithTarget:self
+                                              action:@selector(resetTapped:)];
+  resetTap.delegate = self;
+  resetTap.cancelsTouchesInView = NO;
+  [self addGestureRecognizer:resetTap];
 
   [self setExpandedVisuals:NO];
   return self;
@@ -591,6 +599,66 @@ typedef NS_ENUM(NSInteger, YTVolumeHUDTransitionPhase) {
 
   if (self.changeBlock)
     self.changeBlock(value);
+
+  if (self.autoHideEnabled)
+    [self scheduleHideAfterDelay:1.8];
+}
+
+- (BOOL)gestureRecognizer:(UIGestureRecognizer *)gestureRecognizer
+       shouldReceiveTouch:(UITouch *)touch {
+  (void)gestureRecognizer;
+
+  if (!self.interactiveMode || self.slider.hidden)
+    return NO;
+
+  UIView *view = touch.view;
+  if ([view isDescendantOfView:self.slider] ||
+      [view isDescendantOfView:self.closeButton])
+    return NO;
+
+  // Keep a small gap above the slider so near-misses don't reset the volume
+  CGPoint point = [touch locationInView:self];
+  if (point.y >= CGRectGetMinY(self.slider.frame) - 6.0f)
+    return NO;
+  if (CGRectContainsPoint(CGRectInset(self.closeButton.frame, -8.0f, -8.0f),
+                          point))
+    return NO;
+
+  return YES;
+}
+
+- (void)resetTapped:(UITapGestureRecognizer *)tap {
+  if (tap.state != UIGestureRecognizerStateEnded || !self.interactiveMode)
+    return;
+
+  NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+  if ([defaults objectForKey:@"VolumeBoostYTHapticFeedbackEnabled"] == nil ||
+      [defaults boolForKey:@"VolumeBoostYTHapticFeedbackEnabled"]) {
+    UIImpactFeedbackGenerator *generator = [[UIImpactFeedbackGenerator alloc]
+        initWithStyle:UIImpactFeedbackStyleMedium];
+    [generator prepare];
+    [generator impactOccurred];
+  }
+
+  [self.slider setValue:1.0f animated:YES];
+  [self updatePercentText:1.0f];
+
+  if (self.changeBlock)
+    self.changeBlock(1.0f);
+
+  // Small pulse on the percentage so the reset is visible
+  [UIView animateWithDuration:0.10
+      animations:^{
+        self.percentLabel.transform = CGAffineTransformMakeScale(1.15f, 1.15f);
+      }
+      completion:^(BOOL finished) {
+        (void)finished;
+        [UIView animateWithDuration:0.16
+                         animations:^{
+                           self.percentLabel.transform =
+                               CGAffineTransformIdentity;
+                         }];
+      }];
 
   if (self.autoHideEnabled)
     [self scheduleHideAfterDelay:1.8];
