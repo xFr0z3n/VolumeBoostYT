@@ -569,8 +569,16 @@ static void VBShowRightSideHintIfNeeded(UIWindow *window) {
   for (UIView *candidate = view; candidate && candidate != window;
        candidate = candidate.superview) {
     if ([candidate isKindOfClass:[UITextField class]] ||
-        [candidate isKindOfClass:[UITextView class]]) {
+        [candidate isKindOfClass:[UITextView class]] ||
+        [candidate isKindOfClass:[UISlider class]]) {
       return NO;
+    }
+    // Never steal touches from YouTube / YT Music seek bars
+    NSString *name = NSStringFromClass([candidate class]);
+    for (NSString *key in @[ @"Scrubber", @"Slider", @"ProgressBar", @"Seek" ]) {
+      if ([name rangeOfString:key options:NSCaseInsensitiveSearch].location !=
+          NSNotFound)
+        return NO;
     }
   }
 
@@ -1163,6 +1171,8 @@ accessibilityIdentifier:nil
   NSString *bundleID = [[NSBundle mainBundle] bundleIdentifier];
   BOOL isYouTubeProcess =
       [bundleID isEqualToString:@"com.google.ios.youtube"] ||
+      [bundleID isEqualToString:@"com.google.ios.youtubemusic"] ||
+      [bundleID.lowercaseString containsString:@"youtube"] ||
       NSClassFromString(@"YTSettingsGroupData") != Nil ||
       NSClassFromString(@"YTAppSettingsPresentationData") != Nil;
 
