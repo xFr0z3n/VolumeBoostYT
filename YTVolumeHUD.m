@@ -99,13 +99,14 @@ typedef NS_ENUM(NSInteger, YTVolumeHUDTransitionPhase) {
 
 @end
 
-@interface YTVolumeHUD () <UIGestureRecognizerDelegate>
+@interface YTVolumeHUD ()
 @property(nonatomic, strong) UIVisualEffectView *backgroundView;
 @property(nonatomic, strong) UIImageView *iconView;
 @property(nonatomic, strong) UILabel *titleLabel;
 @property(nonatomic, strong) UILabel *percentLabel;
 @property(nonatomic, strong) VBPrecisionSlider *slider;
 @property(nonatomic, strong) UIButton *closeButton;
+@property(nonatomic, strong) UIButton *resetButton;
 @property(nonatomic, assign) NSInteger lastDisplayedPercent;
 @property(nonatomic, assign) NSInteger animationToken;
 @property(nonatomic, assign) YTVolumeHUDTransitionPhase transitionPhase;
@@ -205,13 +206,14 @@ typedef NS_ENUM(NSInteger, YTVolumeHUDTransitionPhase) {
              forControlEvents:UIControlEventTouchUpInside];
   [self addSubview:self.closeButton];
 
-  // Tap the middle of the panel (icon / title / percentage) to reset to 100%
-  UITapGestureRecognizer *resetTap =
-      [[UITapGestureRecognizer alloc] initWithTarget:self
-                                              action:@selector(resetTapped:)];
-  resetTap.delegate = self;
-  resetTap.cancelsTouchesInView = NO;
-  [self addGestureRecognizer:resetTap];
+  // Invisible button over the icon / title / percentage: tap = reset to 100%
+  self.resetButton = [UIButton buttonWithType:UIButtonTypeCustom];
+  self.resetButton.backgroundColor = [UIColor clearColor];
+  self.resetButton.accessibilityLabel = @"Reset volume to 100%";
+  [self.resetButton addTarget:self
+                       action:@selector(resetPressed:)
+             forControlEvents:UIControlEventTouchUpInside];
+  [self insertSubview:self.resetButton belowSubview:self.closeButton];
 
   [self setExpandedVisuals:NO];
   return self;
@@ -275,6 +277,7 @@ typedef NS_ENUM(NSInteger, YTVolumeHUDTransitionPhase) {
   self.titleLabel.hidden = !expanded;
   self.slider.hidden = !expanded;
   self.closeButton.hidden = !expanded;
+  self.resetButton.hidden = !expanded;
   self.percentLabel.textColor =
       expanded ? [UIColor systemBlueColor] : [UIColor whiteColor];
   self.percentLabel.font =
@@ -300,6 +303,7 @@ typedef NS_ENUM(NSInteger, YTVolumeHUDTransitionPhase) {
     self.titleLabel.frame = CGRectZero;
     self.slider.frame = CGRectZero;
     self.closeButton.frame = CGRectZero;
+    self.resetButton.frame = CGRectZero;
     return;
   }
 
@@ -308,6 +312,10 @@ typedef NS_ENUM(NSInteger, YTVolumeHUDTransitionPhase) {
   self.percentLabel.frame = CGRectMake(68.0f, 31.0f, width - 136.0f, 34.0f);
   self.slider.frame = CGRectMake(22.0f, height - 40.0f, width - 44.0f, 28.0f);
   self.closeButton.frame = CGRectMake(width - 40.0f, 12.0f, 28.0f, 28.0f);
+  // Upper area, leaving room for the X and a small gap above the slider
+  self.resetButton.frame =
+      CGRectMake(0.0f, 0.0f, width - 48.0f,
+                 MAX(0.0f, CGRectGetMinY(self.slider.frame) - 6.0f));
 }
 
 - (void)updatePercentText:(float)value {
@@ -604,31 +612,9 @@ typedef NS_ENUM(NSInteger, YTVolumeHUDTransitionPhase) {
     [self scheduleHideAfterDelay:1.8];
 }
 
-- (BOOL)gestureRecognizer:(UIGestureRecognizer *)gestureRecognizer
-       shouldReceiveTouch:(UITouch *)touch {
-  (void)gestureRecognizer;
-
-  if (!self.interactiveMode || self.slider.hidden)
-    return NO;
-
-  UIView *view = touch.view;
-  if ([view isDescendantOfView:self.slider] ||
-      [view isDescendantOfView:self.closeButton])
-    return NO;
-
-  // Keep a small gap above the slider so near-misses don't reset the volume
-  CGPoint point = [touch locationInView:self];
-  if (point.y >= CGRectGetMinY(self.slider.frame) - 6.0f)
-    return NO;
-  if (CGRectContainsPoint(CGRectInset(self.closeButton.frame, -8.0f, -8.0f),
-                          point))
-    return NO;
-
-  return YES;
-}
-
-- (void)resetTapped:(UITapGestureRecognizer *)tap {
-  if (tap.state != UIGestureRecognizerStateEnded || !self.interactiveMode)
+- (void)resetPressed:(UIButton *)button {
+  (void)button;
+  if (!self.interactiveMode)
     return;
 
   NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
@@ -646,19 +632,12 @@ typedef NS_ENUM(NSInteger, YTVolumeHUDTransitionPhase) {
   if (self.changeBlock)
     self.changeBlock(1.0f);
 
-  // Small pulse on the percentage so the reset is visible
-  [UIView animateWithDuration:0.10
-      animations:^{
-        self.percentLabel.transform = CGAffineTransformMakeScale(1.15f, 1.15f);
-      }
-      completion:^(BOOL finished) {
-        (void)finished;
-        [UIView animateWithDuration:0.16
-                         animations:^{
-                           self.percentLabel.transform =
-                               CGAffineTransformIdentity;
-                         }];
-      }];
+  // Quick pulse on the percentage so the reset is visible
+  self.percentLabel.alpha = 0.35f;
+  [UIView animateWithDuration:0.25
+                   animations:^{
+                     self.percentLabel.alpha = 1.0f;
+                   }];
 
   if (self.autoHideEnabled)
     [self scheduleHideAfterDelay:1.8];
